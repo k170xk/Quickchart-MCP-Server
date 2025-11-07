@@ -74,7 +74,7 @@ class QuickChartServer {
   private validateChartType(type: string): void {
     const validTypes = [
       'bar', 'line', 'pie', 'doughnut', 'radar',
-      'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer'
+      'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer', 'graphviz'
     ];
     if (!validTypes.includes(type)) {
       throw new McpError(
@@ -100,6 +100,15 @@ class QuickChartServer {
       );
     }
     
+    const { type } = args;
+    this.validateChartType(type);
+    
+    // Special handling for graphviz - it doesn't use the standard chart config
+    if (type === 'graphviz') {
+      // Return a placeholder config - we'll handle graphviz separately
+      return { type: 'graphviz' } as any;
+    }
+    
     if (!args.datasets || !Array.isArray(args.datasets)) {
       throw new McpError(
         ErrorCode.InvalidParams,
@@ -107,9 +116,7 @@ class QuickChartServer {
       );
     }
     
-    const { type, labels, datasets, title, options = {} } = args;
-    
-    this.validateChartType(type);
+    const { labels, datasets, title, options = {} } = args;
 
     const config: ChartConfig = {
       type,
@@ -179,7 +186,22 @@ class QuickChartServer {
     return config;
   }
 
-  private async generateChartUrl(config: ChartConfig): Promise<string> {
+  private async generateChartUrl(config: ChartConfig, args?: any): Promise<string> {
+    // Handle Graphviz separately
+    if (config.type === 'graphviz') {
+      if (!args?.dot || typeof args.dot !== 'string') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'DOT language code is required for graphviz charts'
+        );
+      }
+      const encodedDot = encodeURIComponent(args.dot);
+      const format = args.graphvizFormat || 'png';
+      const layout = args.graphvizLayout || 'dot';
+      return `${QUICKCHART_GRAPHVIZ_URL}?graph=${encodedDot}&layout=${layout}&format=${format}`;
+    }
+    
+    // Standard Chart.js charts
     const encodedConfig = encodeURIComponent(JSON.stringify(config));
     return `${QUICKCHART_BASE_URL}?c=${encodedConfig}`;
   }
@@ -189,14 +211,28 @@ class QuickChartServer {
       tools: [
         {
           name: 'generate_chart',
-          description: 'Generate a chart using QuickChart. Supports bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, and speedometer chart types.',
+          description: 'Generate a chart using QuickChart. Supports bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer, and graphviz chart types.',
           inputSchema: {
             type: 'object',
             properties: {
               type: {
                 type: 'string',
-                description: 'Chart type: bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, or speedometer',
-                enum: ['bar', 'line', 'pie', 'doughnut', 'radar', 'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer']
+                description: 'Chart type: bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer, or graphviz',
+                enum: ['bar', 'line', 'pie', 'doughnut', 'radar', 'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer', 'graphviz']
+              },
+              dot: {
+                type: 'string',
+                description: 'Graphviz DOT language code (required when type is graphviz). Example: "digraph G { A -> B; B -> C; }"'
+              },
+              graphvizFormat: {
+                type: 'string',
+                description: 'Output format for graphviz: png, svg, jpg, pdf (default: png)',
+                enum: ['png', 'svg', 'jpg', 'pdf']
+              },
+              graphvizLayout: {
+                type: 'string',
+                description: 'Graphviz layout engine: dot, neato, fdp, sfdp, twopi, circo (default: dot)',
+                enum: ['dot', 'neato', 'fdp', 'sfdp', 'twopi', 'circo']
               },
               labels: {
                 type: 'array',
@@ -205,7 +241,7 @@ class QuickChartServer {
               },
               datasets: {
                 type: 'array',
-                description: 'Array of dataset objects, each containing data and optional styling',
+                description: 'Array of dataset objects, each containing data and optional styling (required for all chart types except graphviz)',
                 items: {
                   type: 'object',
                   properties: {
@@ -241,7 +277,7 @@ class QuickChartServer {
                 description: 'Additional Chart.js options (scales, plugins, etc.)'
               }
             },
-            required: ['type', 'datasets']
+            required: ['type']
           }
         },
         {
@@ -258,32 +294,6 @@ class QuickChartServer {
             required: ['config']
           }
         },
-        {
-          name: 'generate_graphviz',
-          description: 'Generate a graph visualization using Graphviz DOT language. Creates network diagrams, flowcharts, and other graph structures.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dot: {
-                type: 'string',
-                description: 'Graphviz DOT language code describing the graph structure (nodes and edges)'
-              },
-              format: {
-                type: 'string',
-                description: 'Output format: png, svg, jpg, pdf (default: png)',
-                enum: ['png', 'svg', 'jpg', 'pdf'],
-                default: 'png'
-              },
-              layout: {
-                type: 'string',
-                description: 'Graph layout engine: dot, neato, fdp, sfdp, twopi, circo (default: dot)',
-                enum: ['dot', 'neato', 'fdp', 'sfdp', 'twopi', 'circo'],
-                default: 'dot'
-              }
-            },
-            required: ['dot']
-          }
-        }
       ]
     });
     this.server.setRequestHandler(ListToolsRequestSchema, this.listToolsHandler);
@@ -293,7 +303,7 @@ class QuickChartServer {
         case 'generate_chart': {
           try {
             const config = this.generateChartConfig(request.params.arguments);
-            const url = await this.generateChartUrl(config);
+            const url = await this.generateChartUrl(config, request.params.arguments);
             return {
               content: [
                 {
@@ -438,45 +448,6 @@ class QuickChartServer {
             throw new McpError(
               ErrorCode.InternalError,
               `Failed to download chart: ${error?.message || 'Unknown error'}`
-            );
-          }
-        }
-
-        case 'generate_graphviz': {
-          try {
-            const { dot, format = 'png', layout = 'dot' } = request.params.arguments as {
-              dot: string;
-              format?: string;
-              layout?: string;
-            };
-
-            if (!dot || typeof dot !== 'string') {
-              throw new McpError(
-                ErrorCode.InvalidParams,
-                'DOT language code is required and must be a string'
-              );
-            }
-
-            // Generate Graphviz URL using QuickChart's graphviz endpoint
-            // QuickChart API format: /graphviz?graph=<encoded_dot>&layout=<layout>&format=<format>
-            const encodedDot = encodeURIComponent(dot);
-            const graphvizUrl = `${QUICKCHART_GRAPHVIZ_URL}?graph=${encodedDot}&layout=${layout}&format=${format}`;
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: graphvizUrl
-                }
-              ]
-            };
-          } catch (error: any) {
-            if (error instanceof McpError) {
-              throw error;
-            }
-            throw new McpError(
-              ErrorCode.InternalError,
-              `Failed to generate Graphviz diagram: ${error?.message || 'Unknown error'}`
             );
           }
         }
