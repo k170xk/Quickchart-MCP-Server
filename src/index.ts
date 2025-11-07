@@ -426,7 +426,23 @@ class QuickChartServer {
   async handleRequest(request: JSONRPCRequest): Promise<any> {
     try {
       // Manually handle the request by routing to appropriate handlers
-      if (request.method === 'tools/list') {
+      if (request.method === 'initialize') {
+        // MCP initialize handshake
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {}
+            },
+            serverInfo: {
+              name: 'quickchart-server',
+              version: '1.0.0'
+            }
+          }
+        } as any;
+      } else if (request.method === 'tools/list') {
         if (this.listToolsHandler) {
           const result = await this.listToolsHandler({ params: {} } as any);
           return {
