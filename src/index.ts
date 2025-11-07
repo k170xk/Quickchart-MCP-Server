@@ -214,7 +214,10 @@ class QuickChartServer {
                     },
                     data: { 
                       type: 'array',
-                      description: 'Array of numeric values for the chart data points'
+                      description: 'Array of numeric values for the chart data points',
+                      items: {
+                        type: 'number'
+                      }
                     },
                     backgroundColor: { 
                       type: 'string',
