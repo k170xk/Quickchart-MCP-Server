@@ -433,7 +433,7 @@ class QuickChartServer {
             jsonrpc: '2.0',
             id: request.id,
             result
-          };
+          } as any;
         }
       } else if (request.method === 'tools/call') {
         if (this.callToolHandler) {
@@ -442,7 +442,7 @@ class QuickChartServer {
             jsonrpc: '2.0',
             id: request.id,
             result
-          };
+          } as any;
         }
       }
       
@@ -454,7 +454,7 @@ class QuickChartServer {
           code: ErrorCode.MethodNotFound,
           message: `Method not found: ${request.method}`
         }
-      };
+      } as any;
     } catch (error: any) {
       return {
         jsonrpc: '2.0',
@@ -463,7 +463,7 @@ class QuickChartServer {
           code: error.code || ErrorCode.InternalError,
           message: error.message || 'Internal error'
         }
-      };
+      } as any;
     }
   }
 }
