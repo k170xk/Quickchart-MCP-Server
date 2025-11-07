@@ -6,11 +6,16 @@ import {
   ErrorCode,
   ListToolsRequestSchema,
   McpError,
+  JSONRPCRequest,
+  JSONRPCResponse,
 } from '@modelcontextprotocol/sdk/types.js';
 import axios from 'axios';
 import getenv from 'getenv';
+import http from 'http';
+import { URL } from 'url';
 
 const QUICKCHART_BASE_URL = getenv('QUICKCHART_BASE_URL', 'https://quickchart.io/chart');
+const PORT = getenv.int('PORT', 0); // 0 means not set, use stdio mode
 
 interface ChartConfig {
   type: string;
@@ -41,6 +46,8 @@ interface ChartConfig {
 
 class QuickChartServer {
   private server: Server;
+  private listToolsHandler?: (request: any) => Promise<any>;
+  private callToolHandler?: (request: any) => Promise<any>;
 
   constructor() {
     this.server = new Server(
@@ -178,7 +185,7 @@ class QuickChartServer {
   }
 
   private setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    this.listToolsHandler = async () => ({
       tools: [
         {
           name: 'generate_chart',
@@ -244,9 +251,10 @@ class QuickChartServer {
           }
         }
       ]
-    }));
+    });
+    this.server.setRequestHandler(ListToolsRequestSchema, this.listToolsHandler);
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.callToolHandler = async (request) => {
       switch (request.params.name) {
         case 'generate_chart': {
           try {
@@ -406,7 +414,8 @@ class QuickChartServer {
             `Unknown tool: ${request.params.name}`
           );
       }
-    });
+    };
+    this.server.setRequestHandler(CallToolRequestSchema, this.callToolHandler);
   }
 
   async run() {
@@ -414,7 +423,152 @@ class QuickChartServer {
     await this.server.connect(transport);
     console.error('QuickChart MCP server running on stdio');
   }
+
+  async handleRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
+    try {
+      // Manually handle the request by routing to appropriate handlers
+      if (request.method === 'tools/list') {
+        if (this.listToolsHandler) {
+          const result = await this.listToolsHandler({ params: {} } as any);
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result
+          };
+        }
+      } else if (request.method === 'tools/call') {
+        if (this.callToolHandler) {
+          const result = await this.callToolHandler({ params: request.params } as any);
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result
+          };
+        }
+      }
+      
+      // If no handler found, return method not found
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: ErrorCode.MethodNotFound,
+          message: `Method not found: ${request.method}`
+        }
+      };
+    } catch (error: any) {
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: error.code || ErrorCode.InternalError,
+          message: error.message || 'Internal error'
+        }
+      };
+    }
+  }
 }
 
 const server = new QuickChartServer();
-server.run().catch(console.error);
+
+// If PORT is set, run as HTTP server (for Render/cloud deployment)
+// Otherwise, run as stdio server (for local MCP usage)
+if (PORT > 0) {
+  const httpServer = http.createServer(async (req, res) => {
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    
+    // Health check endpoint
+    if (url.pathname === '/health' || url.pathname === '/') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', service: 'quickchart-mcp-server' }));
+      return;
+    }
+
+    // MCP streaming endpoint
+    if (url.pathname === '/mcp/stream') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk.toString();
+      });
+
+      req.on('end', async () => {
+        try {
+          const request: JSONRPCRequest = JSON.parse(body);
+          const response = await server.handleRequest(request);
+          
+          res.writeHead(200, { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+          });
+          res.end(JSON.stringify(response));
+        } catch (error: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            error: {
+              code: -32603,
+              message: error.message || 'Internal error'
+            }
+          }));
+        }
+      });
+      return;
+    }
+
+    // List tools endpoint
+    if (url.pathname === '/mcp/tools' && req.method === 'GET') {
+      try {
+        const request: JSONRPCRequest = {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/list',
+          params: {}
+        };
+        const response = await server.handleRequest(request);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(response));
+      } catch (error: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+      return;
+    }
+
+    // 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  });
+
+  httpServer.listen(PORT, () => {
+    console.log(`QuickChart MCP Server running on port ${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`MCP endpoint: http://localhost:${PORT}/mcp/stream`);
+    console.log(`Tools endpoint: http://localhost:${PORT}/mcp/tools`);
+  });
+
+  process.on('SIGINT', async () => {
+    console.log('\nShutting down server...');
+    httpServer.close();
+    process.exit(0);
+  });
+} else {
+  // Run as stdio server for local MCP usage
+  server.run().catch(console.error);
+}

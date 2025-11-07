@@ -6,7 +6,7 @@
   "main": "build/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node build/http-server.js",
+    "start": "node build/index.js",
     "start:stdio": "node build/index.js",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
