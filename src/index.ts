@@ -15,6 +15,7 @@ import { URL } from 'url';
 
 const QUICKCHART_BASE_URL = getenv('QUICKCHART_BASE_URL', 'https://quickchart.io/chart');
 const QUICKCHART_GRAPHVIZ_URL = getenv('QUICKCHART_GRAPHVIZ_URL', 'https://quickchart.io/graphviz');
+const QUICKCHART_WORDCLOUD_URL = getenv('QUICKCHART_WORDCLOUD_URL', 'https://quickchart.io/wordcloud');
 const PORT = getenv.int('PORT', 0); // 0 means not set, use stdio mode
 
 interface ChartConfig {
@@ -74,7 +75,7 @@ class QuickChartServer {
   private validateChartType(type: string): void {
     const validTypes = [
       'bar', 'line', 'pie', 'doughnut', 'radar',
-      'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer', 'graphviz'
+      'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer', 'graphviz', 'wordcloud'
     ];
     if (!validTypes.includes(type)) {
       throw new McpError(
@@ -103,10 +104,10 @@ class QuickChartServer {
     const { type } = args;
     this.validateChartType(type);
     
-    // Special handling for graphviz - it doesn't use the standard chart config
-    if (type === 'graphviz') {
-      // Return a placeholder config - we'll handle graphviz separately
-      return { type: 'graphviz' } as any;
+    // Special handling for graphviz and wordcloud - they don't use the standard chart config
+    if (type === 'graphviz' || type === 'wordcloud') {
+      // Return a placeholder config - we'll handle these separately
+      return { type } as any;
     }
     
     if (!args.datasets || !Array.isArray(args.datasets)) {
@@ -201,6 +202,41 @@ class QuickChartServer {
       return `${QUICKCHART_GRAPHVIZ_URL}?graph=${encodedDot}&layout=${layout}&format=${format}`;
     }
     
+    // Handle Word Cloud separately
+    if (config.type === 'wordcloud') {
+      if (!args?.text || typeof args.text !== 'string') {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          'Text is required for wordcloud charts'
+        );
+      }
+      const params = new URLSearchParams();
+      params.append('text', args.text);
+      
+      // Add optional wordcloud parameters
+      if (args.wordcloudFormat) params.append('format', args.wordcloudFormat);
+      if (args.width) params.append('width', String(args.width));
+      if (args.height) params.append('height', String(args.height));
+      if (args.backgroundColor) params.append('backgroundColor', args.backgroundColor);
+      if (args.fontFamily) params.append('fontFamily', args.fontFamily);
+      if (args.fontWeight) params.append('fontWeight', args.fontWeight);
+      if (args.loadGoogleFonts) params.append('loadGoogleFonts', args.loadGoogleFonts);
+      if (args.fontScale) params.append('fontScale', String(args.fontScale));
+      if (args.scale) params.append('scale', args.scale);
+      if (args.padding) params.append('padding', String(args.padding));
+      if (args.rotation) params.append('rotation', String(args.rotation));
+      if (args.maxNumWords) params.append('maxNumWords', String(args.maxNumWords));
+      if (args.minWordLength) params.append('minWordLength', String(args.minWordLength));
+      if (args.case) params.append('case', args.case);
+      if (args.colors) params.append('colors', JSON.stringify(args.colors));
+      if (args.removeStopwords !== undefined) params.append('removeStopwords', String(args.removeStopwords));
+      if (args.cleanWords !== undefined) params.append('cleanWords', String(args.cleanWords));
+      if (args.language) params.append('language', args.language);
+      if (args.useWordList !== undefined) params.append('useWordList', String(args.useWordList));
+      
+      return `${QUICKCHART_WORDCLOUD_URL}?${params.toString()}`;
+    }
+    
     // Standard Chart.js charts
     const encodedConfig = encodeURIComponent(JSON.stringify(config));
     return `${QUICKCHART_BASE_URL}?c=${encodedConfig}`;
@@ -211,14 +247,14 @@ class QuickChartServer {
       tools: [
         {
           name: 'generate_chart',
-          description: 'Generate a chart using QuickChart. Supports bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer, and graphviz chart types.',
+          description: 'Generate a chart using QuickChart. Supports bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer, graphviz, and wordcloud chart types.',
           inputSchema: {
             type: 'object',
             properties: {
               type: {
                 type: 'string',
-                description: 'Chart type: bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer, or graphviz',
-                enum: ['bar', 'line', 'pie', 'doughnut', 'radar', 'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer', 'graphviz']
+                description: 'Chart type: bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer, graphviz, or wordcloud',
+                enum: ['bar', 'line', 'pie', 'doughnut', 'radar', 'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer', 'graphviz', 'wordcloud']
               },
               dot: {
                 type: 'string',
@@ -234,6 +270,90 @@ class QuickChartServer {
                 description: 'Graphviz layout engine: dot, neato, fdp, sfdp, twopi, circo (default: dot)',
                 enum: ['dot', 'neato', 'fdp', 'sfdp', 'twopi', 'circo']
               },
+              text: {
+                type: 'string',
+                description: 'Text content for wordcloud (required when type is wordcloud). Can be plain text or comma-separated word list.'
+              },
+              wordcloudFormat: {
+                type: 'string',
+                description: 'Output format for wordcloud: svg or png (default: svg)',
+                enum: ['svg', 'png']
+              },
+              width: {
+                type: 'number',
+                description: 'Image width in pixels for wordcloud (default: 600)'
+              },
+              height: {
+                type: 'number',
+                description: 'Image height in pixels for wordcloud (default: 600)'
+              },
+              backgroundColor: {
+                type: 'string',
+                description: 'Background color for wordcloud (rgb, hsl, hex, or name value, default: transparent)'
+              },
+              fontFamily: {
+                type: 'string',
+                description: 'Font family for wordcloud (default: serif)'
+              },
+              fontWeight: {
+                type: 'string',
+                description: 'Font weight for wordcloud (default: normal)'
+              },
+              loadGoogleFonts: {
+                type: 'string',
+                description: 'Google Fonts to load for wordcloud (e.g., "Roboto" or "Roboto:300")'
+              },
+              fontScale: {
+                type: 'number',
+                description: 'Size of the largest font for wordcloud, roughly (default: 25)'
+              },
+              scale: {
+                type: 'string',
+                description: 'Frequency scaling method for wordcloud: linear, sqrt, or log (default: linear)',
+                enum: ['linear', 'sqrt', 'log']
+              },
+              padding: {
+                type: 'number',
+                description: 'Padding between words in pixels for wordcloud (default: 1)'
+              },
+              rotation: {
+                type: 'number',
+                description: 'Maximum angle of rotation for words in wordcloud (default: 20)'
+              },
+              maxNumWords: {
+                type: 'number',
+                description: 'Maximum number of words to show in wordcloud (default: 200)'
+              },
+              minWordLength: {
+                type: 'number',
+                description: 'Minimum character length of each word to include in wordcloud (default: 1)'
+              },
+              case: {
+                type: 'string',
+                description: 'Force words to this case in wordcloud: upper, lower, or none (default: lower)',
+                enum: ['upper', 'lower', 'none']
+              },
+              colors: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'List of colors for words in wordcloud, assigned randomly (e.g., ["red", "#00ff00", "rgba(0, 0, 255, 1.0)"])'
+              },
+              removeStopwords: {
+                type: 'boolean',
+                description: 'If true, remove common words from the wordcloud (default: false)'
+              },
+              cleanWords: {
+                type: 'boolean',
+                description: 'If true, removes symbols and extra characters from words in wordcloud (default: true)'
+              },
+              language: {
+                type: 'string',
+                description: 'Two-letter language code of stopwords to remove for wordcloud (default: en)'
+              },
+              useWordList: {
+                type: 'boolean',
+                description: 'If true, treat text as a comma-separated list of words or phrases for wordcloud (default: false)'
+              },
               labels: {
                 type: 'array',
                 items: { type: 'string' },
@@ -241,7 +361,7 @@ class QuickChartServer {
               },
               datasets: {
                 type: 'array',
-                description: 'Array of dataset objects, each containing data and optional styling (required for all chart types except graphviz)',
+                description: 'Array of dataset objects, each containing data and optional styling (required for all chart types except graphviz and wordcloud)',
                 items: {
                   type: 'object',
                   properties: {
