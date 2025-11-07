@@ -523,6 +523,7 @@ if (PORT > 0) {
       // Support both GET and POST requests
       if (req.method === 'GET') {
         // For GET requests, return the tools list (common for discovery)
+        // Try both JSON-RPC format and direct tools array
         try {
           const request: JSONRPCRequest = {
             jsonrpc: '2.0',
@@ -534,7 +535,8 @@ if (PORT > 0) {
           res.writeHead(200, { 
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive'
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
           });
           res.end(JSON.stringify(response));
         } catch (error: any) {
@@ -563,7 +565,8 @@ if (PORT > 0) {
             res.writeHead(200, { 
               'Content-Type': 'application/json',
               'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive'
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*'
             });
             res.end(JSON.stringify(response));
           } catch (error: any) {
