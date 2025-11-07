@@ -496,22 +496,17 @@ if (PORT > 0) {
 
     // MCP streaming endpoint
     if (url.pathname === '/mcp/stream') {
-      if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Method not allowed' }));
-        return;
-      }
-
-      let body = '';
-      req.on('data', chunk => {
-        body += chunk.toString();
-      });
-
-      req.on('end', async () => {
+      // Support both GET and POST requests
+      if (req.method === 'GET') {
+        // For GET requests, return the tools list (common for discovery)
         try {
-          const request: JSONRPCRequest = JSON.parse(body);
+          const request: JSONRPCRequest = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: {}
+          };
           const response = await server.handleRequest(request);
-          
           res.writeHead(200, { 
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache',
@@ -527,7 +522,42 @@ if (PORT > 0) {
             }
           }));
         }
-      });
+        return;
+      }
+
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+
+        req.on('end', async () => {
+          try {
+            const request: JSONRPCRequest = JSON.parse(body);
+            const response = await server.handleRequest(request);
+            
+            res.writeHead(200, { 
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive'
+            });
+            res.end(JSON.stringify(response));
+          } catch (error: any) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+              error: {
+                code: -32603,
+                message: error.message || 'Internal error'
+              }
+            }));
+          }
+        });
+        return;
+      }
+
+      // Method not allowed
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
       return;
     }
 
