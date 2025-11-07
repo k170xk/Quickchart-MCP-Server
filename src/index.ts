@@ -14,6 +14,7 @@ import http from 'http';
 import { URL } from 'url';
 
 const QUICKCHART_BASE_URL = getenv('QUICKCHART_BASE_URL', 'https://quickchart.io/chart');
+const QUICKCHART_GRAPHVIZ_URL = getenv('QUICKCHART_GRAPHVIZ_URL', 'https://quickchart.io/graphviz');
 const PORT = getenv.int('PORT', 0); // 0 means not set, use stdio mode
 
 interface ChartConfig {
@@ -256,6 +257,32 @@ class QuickChartServer {
             },
             required: ['config']
           }
+        },
+        {
+          name: 'generate_graphviz',
+          description: 'Generate a graph visualization using Graphviz DOT language. Creates network diagrams, flowcharts, and other graph structures.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              dot: {
+                type: 'string',
+                description: 'Graphviz DOT language code describing the graph structure (nodes and edges)'
+              },
+              format: {
+                type: 'string',
+                description: 'Output format: png, svg, jpg, pdf (default: png)',
+                enum: ['png', 'svg', 'jpg', 'pdf'],
+                default: 'png'
+              },
+              layout: {
+                type: 'string',
+                description: 'Graph layout engine: dot, neato, fdp, sfdp, twopi, circo (default: dot)',
+                enum: ['dot', 'neato', 'fdp', 'sfdp', 'twopi', 'circo'],
+                default: 'dot'
+              }
+            },
+            required: ['dot']
+          }
         }
       ]
     });
@@ -411,6 +438,45 @@ class QuickChartServer {
             throw new McpError(
               ErrorCode.InternalError,
               `Failed to download chart: ${error?.message || 'Unknown error'}`
+            );
+          }
+        }
+
+        case 'generate_graphviz': {
+          try {
+            const { dot, format = 'png', layout = 'dot' } = request.params.arguments as {
+              dot: string;
+              format?: string;
+              layout?: string;
+            };
+
+            if (!dot || typeof dot !== 'string') {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                'DOT language code is required and must be a string'
+              );
+            }
+
+            // Generate Graphviz URL using QuickChart's graphviz endpoint
+            // QuickChart API format: /graphviz?graph=<encoded_dot>&layout=<layout>&format=<format>
+            const encodedDot = encodeURIComponent(dot);
+            const graphvizUrl = `${QUICKCHART_GRAPHVIZ_URL}?graph=${encodedDot}&layout=${layout}&format=${format}`;
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: graphvizUrl
+                }
+              ]
+            };
+          } catch (error: any) {
+            if (error instanceof McpError) {
+              throw error;
+            }
+            throw new McpError(
+              ErrorCode.InternalError,
+              `Failed to generate Graphviz diagram: ${error?.message || 'Unknown error'}`
             );
           }
         }
