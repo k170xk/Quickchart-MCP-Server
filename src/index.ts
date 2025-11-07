@@ -188,62 +188,67 @@ class QuickChartServer {
       tools: [
         {
           name: 'generate_chart',
-          description: 'Generate a chart using QuickChart',
+          description: 'Generate a chart using QuickChart. Supports bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, and speedometer chart types.',
           inputSchema: {
             type: 'object',
             properties: {
               type: {
                 type: 'string',
-                description: 'Chart type (bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, speedometer)'
+                description: 'Chart type: bar, line, pie, doughnut, radar, polarArea, scatter, bubble, radialGauge, or speedometer',
+                enum: ['bar', 'line', 'pie', 'doughnut', 'radar', 'polarArea', 'scatter', 'bubble', 'radialGauge', 'speedometer']
               },
               labels: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Labels for data points'
+                description: 'Labels for data points (x-axis labels for most chart types)'
               },
               datasets: {
                 type: 'array',
+                description: 'Array of dataset objects, each containing data and optional styling',
                 items: {
                   type: 'object',
                   properties: {
-                    label: { type: 'string' },
-                    data: { type: 'array' },
+                    label: { 
+                      type: 'string',
+                      description: 'Label for this dataset (shown in legend)'
+                    },
+                    data: { 
+                      type: 'array',
+                      description: 'Array of numeric values for the chart data points'
+                    },
                     backgroundColor: { 
-                      oneOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' } }
-                      ]
+                      type: 'string',
+                      description: 'Background color as a string (e.g., "rgb(75, 192, 192)" or "#FF6384")'
                     },
                     borderColor: {
-                      oneOf: [
-                        { type: 'string' },
-                        { type: 'array', items: { type: 'string' } }
-                      ]
-                    },
-                    additionalConfig: { type: 'object' }
+                      type: 'string',
+                      description: 'Border color as a string (e.g., "rgb(75, 192, 192)" or "#FF6384")'
+                    }
                   },
                   required: ['data']
                 }
               },
-              title: { type: 'string' },
-              options: { type: 'object' }
+              title: { 
+                type: 'string',
+                description: 'Chart title text'
+              },
+              options: { 
+                type: 'object',
+                description: 'Additional Chart.js options (scales, plugins, etc.)'
+              }
             },
             required: ['type', 'datasets']
           }
         },
         {
           name: 'download_chart',
-          description: 'Download a chart image to a local file',
+          description: 'Download a chart image. Returns the chart as base64 encoded image data.',
           inputSchema: {
             type: 'object',
             properties: {
               config: {
                 type: 'object',
-                description: 'Chart configuration object'
-              },
-              outputPath: {
-                type: 'string',
-                description: 'Path where the chart image should be saved. If not provided, the chart will be saved to Desktop or home directory.'
+                description: 'Chart configuration object with type, data (labels and datasets), and optional options'
               }
             },
             required: ['config']
