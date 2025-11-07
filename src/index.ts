@@ -7,7 +7,6 @@ import {
   ListToolsRequestSchema,
   McpError,
   JSONRPCRequest,
-  JSONRPCResponse,
 } from '@modelcontextprotocol/sdk/types.js';
 import axios from 'axios';
 import getenv from 'getenv';
@@ -424,7 +423,7 @@ class QuickChartServer {
     console.error('QuickChart MCP server running on stdio');
   }
 
-  async handleRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
+  async handleRequest(request: JSONRPCRequest): Promise<any> {
     try {
       // Manually handle the request by routing to appropriate handlers
       if (request.method === 'tools/list') {
